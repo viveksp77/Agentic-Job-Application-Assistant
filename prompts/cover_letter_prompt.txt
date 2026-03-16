@@ -1,0 +1,17 @@
+Write a professional cover letter for this job application.
+
+Job Title: {job_title}
+Job Description: {job_description}
+
+Candidate Resume Summary:
+{resume_summary}
+
+Key strengths to highlight: {strengths}
+Missing skills (address positively): {missing_skills}
+
+Structure:
+1. Engaging opening mentioning the role
+2. 2-3 paragraphs highlighting relevant experience + skills
+3. Strong closing with enthusiasm
+
+Keep under 400 words. Tailor specifically to this job.

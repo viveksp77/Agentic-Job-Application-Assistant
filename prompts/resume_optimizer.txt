@@ -1,0 +1,8 @@
+Optimize these resume bullet points to better match the job description. Use action verbs, incorporate relevant keywords, and make them achievement-oriented.
+
+Job Description Keywords: {job_keywords}
+
+Original Bullet Points:
+{original_bullets}
+
+Optimized version (keep same number of bullets, improve each one):
