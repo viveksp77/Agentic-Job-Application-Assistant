@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { streamCoverLetter, streamInterviewQuestions } from '../api/agent';
+import { streamCoverLetter, streamInterviewQuestions, downloadCoverLetterPDF, downloadResumePDF } from '../api/agent';
 
 const TABS = [
   { id: 'gap',       label: '📊 Skill Gap' },
@@ -11,17 +11,17 @@ const TABS = [
   { id: 'summary',   label: '📈 Summary' },
 ];
 
-function getScoreClass(score) {
-  if (score >= 85) return 'excellent';
-  if (score >= 70) return 'good';
-  if (score >= 50) return 'fair';
+function getScoreClass(s) {
+  if (s >= 85) return 'excellent';
+  if (s >= 70) return 'good';
+  if (s >= 50) return 'fair';
   return 'poor';
 }
 
-function getBarColor(score) {
-  if (score >= 85) return '#10b981';
-  if (score >= 70) return '#34d399';
-  if (score >= 50) return '#f59e0b';
+function getBarColor(s) {
+  if (s >= 85) return '#10b981';
+  if (s >= 70) return '#34d399';
+  if (s >= 50) return '#f59e0b';
   return '#ef4444';
 }
 
@@ -33,20 +33,14 @@ function downloadText(text, filename) {
   URL.revokeObjectURL(url);
 }
 
-// ---------------------------------------------------------------------------
-// Streaming text component — shows a blinking cursor while streaming
-// ---------------------------------------------------------------------------
 function StreamingText({ text, isStreaming }) {
   return (
     <div className="content-block" style={{ whiteSpace: 'pre-wrap', minHeight: 80 }}>
       {text}
       {isStreaming && (
         <span style={{
-          display: 'inline-block',
-          width: 2,
-          height: '1em',
-          background: 'var(--accent)',
-          marginLeft: 2,
+          display: 'inline-block', width: 2, height: '1em',
+          background: 'var(--accent)', marginLeft: 2,
           verticalAlign: 'text-bottom',
           animation: 'blink 0.7s step-end infinite',
         }} />
@@ -55,23 +49,19 @@ function StreamingText({ text, isStreaming }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main ResultTabs component
-// ---------------------------------------------------------------------------
 export default function ResultTabs({ results }) {
   const [active, setActive] = useState('gap');
 
-  // Cover letter streaming state
-  const [coverText, setCoverText]         = useState(results.cover_letter || '');
-  const [coverStreaming, setCoverStreaming] = useState(false);
-  const [coverStarted, setCoverStarted]   = useState(!!results.cover_letter);
+  const [coverText, setCoverText]           = useState(results.cover_letter || '');
+  const [coverStreaming, setCoverStreaming]   = useState(false);
+  const [coverStarted, setCoverStarted]     = useState(!!results.cover_letter);
+  const [pdfLoading, setPdfLoading]         = useState({});
   const cancelCoverRef = useRef(null);
 
-  // Interview questions streaming state
-  const [interviewText, setInterviewText]         = useState('');
-  const [interviewStreaming, setInterviewStreaming] = useState(false);
-  const [interviewStarted, setInterviewStarted]   = useState(false);
-  const [parsedQuestions, setParsedQuestions]     = useState(results.interview_questions || []);
+  const [interviewText, setInterviewText]           = useState('');
+  const [interviewStreaming, setInterviewStreaming]   = useState(false);
+  const [interviewStarted, setInterviewStarted]     = useState(false);
+  const [parsedQuestions, setParsedQuestions]       = useState(results.interview_questions || []);
   const cancelInterviewRef = useRef(null);
 
   const eval_  = results.evaluation || {};
@@ -79,7 +69,6 @@ export default function ResultTabs({ results }) {
   const score  = results.ats_score || 0;
   const scoreClass = getScoreClass(score);
 
-  // Build streaming payload from results
   const streamPayload = {
     job_title:      results.jd_analysis?.job_title || 'the role',
     job_desc:       results.jd_analysis?.full_analysis || '',
@@ -89,15 +78,10 @@ export default function ResultTabs({ results }) {
     resume_id:      results.resume_id || null,
   };
 
-  // ---------------------------------------------------------------------------
-  // Streaming handlers
-  // ---------------------------------------------------------------------------
-
   const startCoverStream = () => {
     setCoverText('');
     setCoverStreaming(true);
     setCoverStarted(true);
-
     cancelCoverRef.current = streamCoverLetter(
       streamPayload,
       (token) => setCoverText(prev => prev + token),
@@ -111,26 +95,22 @@ export default function ResultTabs({ results }) {
     setInterviewStreaming(true);
     setInterviewStarted(true);
     setParsedQuestions([]);
-
     const payload = {
       job_desc:      results.jd_analysis?.full_analysis || '',
       resume_skills: results.resume_skills || [],
       resume_id:     results.resume_id || null,
     };
-
     cancelInterviewRef.current = streamInterviewQuestions(
       payload,
       (token) => setInterviewText(prev => prev + token),
       () => {
         setInterviewStreaming(false);
-        // Parse numbered questions from streamed text
         setInterviewText(prev => {
-          const lines = prev.split('\n');
-          const questions = lines
+          const qs = prev.split('\n')
             .filter(l => /^\d+[\.\)]/.test(l.trim()))
             .map(l => l.replace(/^\d+[\.\)]\s*/, '').trim())
             .filter(Boolean);
-          if (questions.length > 0) setParsedQuestions(questions);
+          if (qs.length > 0) setParsedQuestions(qs);
           return prev;
         });
       },
@@ -138,7 +118,31 @@ export default function ResultTabs({ results }) {
     );
   };
 
-  // Cleanup on unmount
+  const handlePdfDownload = async (type) => {
+    setPdfLoading(prev => ({ ...prev, [type]: true }));
+    try {
+      if (type === 'cover') {
+        await downloadCoverLetterPDF({
+          cover_letter:   coverText || results.cover_letter || '',
+          job_title:      results.jd_analysis?.job_title || 'the role',
+          candidate_name: '',
+        });
+      } else if (type === 'resume') {
+        await downloadResumePDF({
+          optimized_bullets: results.optimized_resume || '',
+          job_title:         results.jd_analysis?.job_title || 'the role',
+          candidate_name:    '',
+          resume_skills:     results.resume_skills || [],
+          missing_skills:    results.missing_skills || [],
+        });
+      }
+    } catch (err) {
+      console.error('PDF download failed:', err);
+    } finally {
+      setPdfLoading(prev => ({ ...prev, [type]: false }));
+    }
+  };
+
   useEffect(() => {
     return () => {
       if (cancelCoverRef.current) cancelCoverRef.current();
@@ -146,12 +150,8 @@ export default function ResultTabs({ results }) {
     };
   }, []);
 
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
   return (
     <div className="results-wrap">
-      {/* Cursor blink animation */}
       <style>{`@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }`}</style>
 
       <div className="results-header">Results</div>
@@ -167,7 +167,6 @@ export default function ResultTabs({ results }) {
 
       <div className="tab-content">
 
-        {/* ── Skill Gap ── */}
         {active === 'gap' && (
           <div>
             <div className="section-title">Matched skills</div>
@@ -185,7 +184,6 @@ export default function ResultTabs({ results }) {
           </div>
         )}
 
-        {/* ── ATS Score ── */}
         {active === 'ats' && (
           <div>
             <div className="score-grid">
@@ -210,24 +208,29 @@ export default function ResultTabs({ results }) {
           </div>
         )}
 
-        {/* ── Resume ── */}
         {active === 'resume' && (
           <div>
             <div className="section-title">Optimised resume bullets</div>
             {results.optimized_resume
               ? <>
                   <div className="content-block">{results.optimized_resume}</div>
-                  <button className="download-btn"
-                    onClick={() => downloadText(results.optimized_resume, 'optimized_resume.txt')}>
-                    ⬇ Download bullets
-                  </button>
+                  <div style={{ display: 'flex', gap: 8, marginTop: '1rem', flexWrap: 'wrap' }}>
+                    <button className="download-btn"
+                      onClick={() => downloadText(results.optimized_resume, 'optimized_resume.txt')}>
+                      ⬇ Download .txt
+                    </button>
+                    <button className="download-btn"
+                      onClick={() => handlePdfDownload('resume')}
+                      disabled={pdfLoading.resume}>
+                      {pdfLoading.resume ? '⏳ Generating PDF...' : '📄 Download PDF'}
+                    </button>
+                  </div>
                 </>
               : <div className="content-block" style={{ color: 'var(--muted)' }}>Not completed.</div>
             }
           </div>
         )}
 
-        {/* ── Cover Letter (streaming) ── */}
         {active === 'cover' && (
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
@@ -242,20 +245,26 @@ export default function ResultTabs({ results }) {
               ? <>
                   <StreamingText text={coverText} isStreaming={coverStreaming} />
                   {!coverStreaming && coverText && (
-                    <button className="download-btn"
-                      onClick={() => downloadText(coverText, 'cover_letter.txt')}>
-                      ⬇ Download cover letter
-                    </button>
+                    <div style={{ display: 'flex', gap: 8, marginTop: '1rem', flexWrap: 'wrap' }}>
+                      <button className="download-btn"
+                        onClick={() => downloadText(coverText, 'cover_letter.txt')}>
+                        ⬇ Download .txt
+                      </button>
+                      <button className="download-btn"
+                        onClick={() => handlePdfDownload('cover')}
+                        disabled={pdfLoading.cover}>
+                        {pdfLoading.cover ? '⏳ Generating PDF...' : '📄 Download PDF'}
+                      </button>
+                    </div>
                   )}
                 </>
               : <div className="content-block" style={{ color: 'var(--muted)' }}>
-                  Click "Generate (live)" to stream your cover letter in real time.
+                  Click "Generate (live)" to stream your cover letter.
                 </div>
             }
           </div>
         )}
 
-        {/* ── Interview Questions (streaming) ── */}
         {active === 'interview' && (
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
@@ -277,21 +286,19 @@ export default function ResultTabs({ results }) {
                     </div>
                   : <div className="content-block">{interviewText}</div>
             ) : (
-              <div className="content-block" style={{ color: 'var(--muted)' }}>
-                {(results.interview_questions || []).length > 0
-                  ? <div className="question-list">
-                      {results.interview_questions.map((q, i) => (
-                        <div key={i} className="question-item">{q}</div>
-                      ))}
-                    </div>
-                  : 'Click "Generate (live)" to stream interview questions in real time.'
-                }
-              </div>
+              (results.interview_questions || []).length > 0
+                ? <div className="question-list">
+                    {results.interview_questions.map((q, i) => (
+                      <div key={i} className="question-item">{q}</div>
+                    ))}
+                  </div>
+                : <div className="content-block" style={{ color: 'var(--muted)' }}>
+                    Click "Generate (live)" to stream interview questions.
+                  </div>
             )}
           </div>
         )}
 
-        {/* ── Skill Roadmap ── */}
         {active === 'roadmap' && (
           <div>
             <div className="section-title">Learning roadmap</div>
@@ -309,7 +316,6 @@ export default function ResultTabs({ results }) {
           </div>
         )}
 
-        {/* ── Summary ── */}
         {active === 'summary' && (
           <div>
             <div className={`recommendation-banner ${scoreClass}`}>

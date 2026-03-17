@@ -185,3 +185,54 @@ async def scrape(req: ScrapeRequest):
     from utils.scraper import scrape_job_description
     result = scrape_job_description(req.url)
     return result
+
+
+# ---------------------------------------------------------------------------
+# PDF export endpoints
+# ---------------------------------------------------------------------------
+
+class CoverLetterPDFRequest(BaseModel):
+    cover_letter: str
+    job_title: str = 'the role'
+    candidate_name: str = ''
+
+class ResumePDFRequest(BaseModel):
+    optimized_bullets: str
+    job_title: str = 'the role'
+    candidate_name: str = ''
+    resume_skills: List[str] = []
+    missing_skills: List[str] = []
+
+@app.post("/export/cover-letter-pdf")
+async def export_cover_letter_pdf(req: CoverLetterPDFRequest):
+    """Generate and return a cover letter PDF."""
+    from utils.pdf_generator import generate_cover_letter_pdf
+    from fastapi.responses import Response
+    pdf_bytes = generate_cover_letter_pdf(
+        cover_letter_text=req.cover_letter,
+        job_title=req.job_title,
+        candidate_name=req.candidate_name,
+    )
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=cover_letter.pdf"}
+    )
+
+@app.post("/export/resume-pdf")
+async def export_resume_pdf(req: ResumePDFRequest):
+    """Generate and return an optimised resume PDF."""
+    from utils.pdf_generator import generate_resume_pdf
+    from fastapi.responses import Response
+    pdf_bytes = generate_resume_pdf(
+        bullets_text=req.optimized_bullets,
+        job_title=req.job_title,
+        candidate_name=req.candidate_name,
+        resume_skills=req.resume_skills,
+        missing_skills=req.missing_skills,
+    )
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=optimized_resume.pdf"}
+    )

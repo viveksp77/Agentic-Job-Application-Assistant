@@ -86,3 +86,34 @@ export const scrapeJobUrl = async (url) => {
   const response = await axios.post(`${BASE}/scrape`, { url }, { timeout: 30000 });
   return response.data;
 };
+
+// PDF export — downloads directly from Python FastAPI
+export const downloadCoverLetterPDF = async (payload) => {
+  const response = await fetch('http://localhost:8000/export/cover-letter-pdf', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'cover_letter.pdf';
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+export const downloadResumePDF = async (payload) => {
+  const response = await fetch('http://localhost:8000/export/resume-pdf', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'optimized_resume.pdf';
+  a.click();
+  URL.revokeObjectURL(url);
+};
