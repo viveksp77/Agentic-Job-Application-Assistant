@@ -81,3 +81,8 @@ export const streamCoverLetter = (payload, onToken, onDone, onError) =>
 
 export const streamInterviewQuestions = (payload, onToken, onDone, onError) =>
   _stream(`${PYTHON}/stream/interview-questions`, payload, onToken, onDone, onError);
+
+export const scrapeJobUrl = async (url) => {
+  const response = await axios.post(`${BASE}/scrape`, { url }, { timeout: 30000 });
+  return response.data;
+};

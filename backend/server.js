@@ -88,6 +88,22 @@ app.post('/api/interview/evaluate', async (req, res) => {
     }
 });
 
+// Job scraper
+app.post('/api/scrape', async (req, res) => {
+    try {
+        const response = await axios.post(`${PYTHON_API}/scrape`, req.body, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 30000,
+        });
+        res.json(response.data);
+    } catch (err) {
+        console.error('Scrape error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
+
 // ---------------------------------------------------------------------------
 // Start server
 // ---------------------------------------------------------------------------

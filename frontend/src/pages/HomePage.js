@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { analyzeApplication } from '../api/agent';
+import { analyzeApplication, scrapeJobUrl } from '../api/agent';
 import ProgressBar from '../components/ProgressBar';
 import ResultTabs from '../components/ResultTabs';
 
@@ -15,13 +15,16 @@ const STEPS = [
 ];
 
 export default function HomePage() {
-  const [resumeFile, setResumeFile] = useState(null);
-  const [jobDesc, setJobDesc] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [results, setResults] = useState(null);
-  const [error, setError] = useState('');
-  const [dragging, setDragging] = useState(false);
+  const [resumeFile, setResumeFile]   = useState(null);
+  const [jobDesc, setJobDesc]         = useState('');
+  const [jobUrl, setJobUrl]           = useState('');
+  const [scraping, setScraping]       = useState(false);
+  const [scrapeError, setScrapeError] = useState('');
+  const [loading, setLoading]         = useState(false);
+  const [progress, setProgress]       = useState(0);
+  const [results, setResults]         = useState(null);
+  const [error, setError]             = useState('');
+  const [dragging, setDragging]       = useState(false);
 
   const handleDrop = (e) => {
     e.preventDefault();
@@ -30,9 +33,34 @@ export default function HomePage() {
     if (file?.type === 'application/pdf') setResumeFile(file);
   };
 
+  // ---------------------------------------------------------------------------
+  // Scrape job URL
+  // ---------------------------------------------------------------------------
+  const handleScrape = async () => {
+    if (!jobUrl.trim()) return;
+    setScraping(true);
+    setScrapeError('');
+    try {
+      const data = await scrapeJobUrl(jobUrl.trim());
+      if (data.success) {
+        setJobDesc(data.job_description);
+        setScrapeError('');
+      } else {
+        setScrapeError(data.error || 'Could not extract job description.');
+      }
+    } catch (err) {
+      setScrapeError(err.response?.data?.error || err.message || 'Scrape failed.');
+    } finally {
+      setScraping(false);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Run analysis
+  // ---------------------------------------------------------------------------
   const handleSubmit = async () => {
     if (!resumeFile || !jobDesc.trim()) {
-      setError('Please upload a resume and paste a job description.');
+      setError('Please upload a resume and provide a job description.');
       return;
     }
     setError('');
@@ -40,7 +68,6 @@ export default function HomePage() {
     setResults(null);
     setProgress(0);
 
-    // Simulate step progress while API call runs
     let step = 0;
     const interval = setInterval(() => {
       step = Math.min(step + 1, STEPS.length - 1);
@@ -60,6 +87,9 @@ export default function HomePage() {
     }
   };
 
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
   return (
     <div className="upload-form">
       <div className="hero">
@@ -86,21 +116,69 @@ export default function HomePage() {
                   {!resumeFile && 'or click to browse'}
                 </div>
               </div>
-              <input
-                id="file-input"
-                type="file"
-                accept=".pdf"
-                className="file-input"
-                onChange={(e) => setResumeFile(e.target.files[0])}
-              />
+              <input id="file-input" type="file" accept=".pdf" className="file-input"
+                onChange={(e) => setResumeFile(e.target.files[0])} />
             </div>
 
             {/* Job description */}
             <div className="form-card">
               <span className="form-label">Job Description</span>
+
+              {/* URL scraper */}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                <input
+                  style={{
+                    flex: 1, padding: '0.6rem 0.75rem',
+                    background: 'var(--bg3)', border: '1px solid var(--border2)',
+                    borderRadius: 8, color: 'var(--text)', fontFamily: 'inherit',
+                    fontSize: '0.85rem', outline: 'none',
+                  }}
+                  placeholder="Paste job URL to auto-fetch (optional)"
+                  value={jobUrl}
+                  onChange={(e) => setJobUrl(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleScrape()}
+                />
+                <button
+                  onClick={handleScrape}
+                  disabled={scraping || !jobUrl.trim()}
+                  style={{
+                    padding: '0.6rem 1rem',
+                    background: scraping ? 'var(--bg3)' : 'var(--accent)',
+                    border: 'none', borderRadius: 8,
+                    color: 'white', fontFamily: 'inherit',
+                    fontSize: '0.85rem', cursor: 'pointer',
+                    whiteSpace: 'nowrap', transition: 'all 0.15s',
+                    opacity: (!jobUrl.trim() || scraping) ? 0.5 : 1,
+                  }}
+                >
+                  {scraping ? '⏳' : '🔗 Fetch'}
+                </button>
+              </div>
+
+              {scrapeError && (
+                <div style={{
+                  fontSize: '0.8rem', color: '#f87171',
+                  background: 'rgba(239,68,68,0.08)',
+                  border: '1px solid rgba(239,68,68,0.2)',
+                  borderRadius: 6, padding: '0.5rem 0.75rem',
+                  marginBottom: 8,
+                }}>
+                  {scrapeError}
+                </div>
+              )}
+
+              {jobDesc && !scrapeError && jobUrl && (
+                <div style={{
+                  fontSize: '0.78rem', color: '#34d399',
+                  marginBottom: 6,
+                }}>
+                  ✓ Job description fetched successfully
+                </div>
+              )}
+
               <textarea
                 className="textarea"
-                placeholder="Paste the full job description here..."
+                placeholder="Or paste the job description here..."
                 value={jobDesc}
                 onChange={(e) => setJobDesc(e.target.value)}
               />
@@ -115,9 +193,7 @@ export default function HomePage() {
         </>
       )}
 
-      {loading && (
-        <ProgressBar steps={STEPS} currentStep={progress} />
-      )}
+      {loading && <ProgressBar steps={STEPS} currentStep={progress} />}
 
       {results && (
         <>
@@ -125,7 +201,13 @@ export default function HomePage() {
           <button
             className="submit-btn"
             style={{ marginTop: '1rem' }}
-            onClick={() => { setResults(null); setResumeFile(null); setJobDesc(''); }}
+            onClick={() => {
+              setResults(null);
+              setResumeFile(null);
+              setJobDesc('');
+              setJobUrl('');
+              setScrapeError('');
+            }}
           >
             ← Analyse Another
           </button>

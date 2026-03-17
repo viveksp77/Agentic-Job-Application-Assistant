@@ -170,3 +170,18 @@ async def evaluate_answer(req: InterviewRequest):
         except Exception:
             pass
     return {"clarity":7,"relevance":7,"depth":7,"feedback":response[:200],"strength":"Submitted.","improvement":"Be more specific."}
+
+
+# ---------------------------------------------------------------------------
+# Job scraper endpoint
+# ---------------------------------------------------------------------------
+
+class ScrapeRequest(BaseModel):
+    url: str
+
+@app.post("/scrape")
+async def scrape(req: ScrapeRequest):
+    """Fetch a job posting URL and return the extracted job description."""
+    from utils.scraper import scrape_job_description
+    result = scrape_job_description(req.url)
+    return result
