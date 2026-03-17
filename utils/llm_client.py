@@ -1,16 +1,14 @@
 import os
 import traceback
+from typing import Generator
 import ollama
 from openai import OpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# ---------------------------------------------------------------------------
-# Model config — update this if you switch models
-# ---------------------------------------------------------------------------
-OLLAMA_MODEL = 'llama3.2'       # must match exactly what `ollama list` shows
-OPENAI_MODEL = 'gpt-4o-mini'    # only used if OPENAI_API_KEY is set in .env
+OLLAMA_MODEL = 'llama3.2'
+OPENAI_MODEL = 'gpt-4o-mini'
 
 
 class LLMClient:
@@ -24,17 +22,8 @@ class LLMClient:
             print("[LLMClient] No OpenAI key found — using Ollama only.")
 
     def chat(self, messages: list, max_retries: int = 2) -> str:
-        """
-        Unified chat interface: OpenAI → Ollama → dummy fallback.
-
-        Args:
-            messages:    List of {'role': 'system'|'user'|'assistant', 'content': str}
-            max_retries: How many times to retry on transient OpenAI errors.
-
-        Returns:
-            Response text string from the LLM.
-        """
-        # --- 1. Try OpenAI if key is available ---
+        """Blocking chat — returns full response string."""
+        # --- 1. Try OpenAI ---
         if self.openai_client:
             for attempt in range(max_retries):
                 try:
@@ -48,20 +37,16 @@ class LLMClient:
                 except Exception as e:
                     err = str(e).lower()
                     if 'quota' in err or '429' in err or 'billing' in err:
-                        print(f"[LLMClient] OpenAI quota/billing issue — falling back to Ollama: {e}")
+                        print(f"[LLMClient] OpenAI quota issue — falling back to Ollama: {e}")
                         break
                     if attempt < max_retries - 1:
-                        print(f"[LLMClient] OpenAI attempt {attempt + 1} failed, retrying: {e}")
                         continue
                     print(f"[LLMClient] OpenAI failed after {max_retries} attempts: {e}")
 
         # --- 2. Try Ollama ---
         try:
             print(f"[LLMClient] Calling Ollama model: {OLLAMA_MODEL}")
-            response = ollama.chat(
-                model=OLLAMA_MODEL,
-                messages=messages,
-            )
+            response = ollama.chat(model=OLLAMA_MODEL, messages=messages)
             content = response['message']['content']
             print(f"[LLMClient] Ollama response received ({len(content)} chars)")
             return content
@@ -69,39 +54,52 @@ class LLMClient:
             print(f"[LLMClient] Ollama error: {e}")
             traceback.print_exc()
 
-        # --- 3. Dummy fallback (last resort — tells you something is broken) ---
+        # --- 3. Dummy fallback ---
         print("[LLMClient] WARNING: Both OpenAI and Ollama failed. Returning dummy response.")
         return self._dummy_fallback(messages)
 
-    def _dummy_fallback(self, messages: list) -> str:
+    def stream(self, messages: list) -> Generator[str, None, None]:
         """
-        Last-resort static responses.
-        These are intentionally obvious so you notice when real LLM calls fail.
-        Check your terminal for the Ollama error printed above.
+        Streaming chat — yields text chunks as they arrive.
+        Falls back to chunking the full response if streaming is unavailable.
         """
-        prompt = messages[-1]['content'].lower() if messages else ''
+        # --- Try Ollama streaming ---
+        try:
+            print(f"[LLMClient] Streaming from Ollama: {OLLAMA_MODEL}")
+            stream = ollama.chat(
+                model=OLLAMA_MODEL,
+                messages=messages,
+                stream=True,
+            )
+            for chunk in stream:
+                token = chunk.get('message', {}).get('content', '')
+                if token:
+                    yield token
+            return
+        except Exception as e:
+            print(f"[LLMClient] Ollama streaming error: {e}")
 
+        # --- Fallback: get full response and yield in small chunks ---
+        try:
+            full = self.chat(messages)
+            words = full.split(' ')
+            for i, word in enumerate(words):
+                yield word + (' ' if i < len(words) - 1 else '')
+        except Exception as e:
+            yield f"[Error generating response: {e}]"
+
+    def _dummy_fallback(self, messages: list) -> str:
+        prompt = messages[-1]['content'].lower() if messages else ''
         if 'cover letter' in prompt:
-            return (
-                "[DUMMY] Dear Hiring Manager,\n\n"
-                "Ollama is not responding — check your terminal for errors.\n\n"
-                "Sincerely, Candidate"
-            )
+            return "[DUMMY] Ollama not responding — check terminal for errors."
         elif 'interview' in prompt:
-            return (
-                "1. [DUMMY] Ollama is not responding — check terminal.\n"
-                "2. Verify `ollama serve` is running.\n"
-                "3. Verify model name with `ollama list`."
-            )
+            return "1. [DUMMY] Ollama not responding.\n2. Verify ollama serve is running.\n3. Check model name with ollama list."
         elif 'optimize' in prompt or 'bullet' in prompt:
-            return "• [DUMMY] Ollama not responding — check terminal for errors."
-        elif 'job description' in prompt or 'analyze' in prompt:
+            return "• [DUMMY] Ollama not responding — check terminal."
+        elif 'job description' in prompt:
             return '{"job_title": "Unknown", "required_skills": [], "experience_level": "Mid", "key_responsibilities": []}'
-        elif 'roadmap' in prompt or 'suggestion' in prompt:
-            return "1. [DUMMY] Ollama not responding — check terminal."
         else:
             return "[DUMMY] LLM unavailable — check terminal for Ollama errors."
 
 
-# Global singleton used by all tools
 llm_client = LLMClient()
