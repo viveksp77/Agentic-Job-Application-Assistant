@@ -14,17 +14,26 @@ const STEPS = [
   'Skill suggestions',
 ];
 
-export default function HomePage() {
+export default function HomePage({
+  persistedResults,
+  setPersistedResults,
+  persistedLoading,
+  setPersistedLoading,
+}) {
   const [resumeFile, setResumeFile]   = useState(null);
   const [jobDesc, setJobDesc]         = useState('');
   const [jobUrl, setJobUrl]           = useState('');
   const [scraping, setScraping]       = useState(false);
   const [scrapeError, setScrapeError] = useState('');
-  const [loading, setLoading]         = useState(false);
   const [progress, setProgress]       = useState(0);
-  const [results, setResults]         = useState(null);
   const [error, setError]             = useState('');
   const [dragging, setDragging]       = useState(false);
+
+  // Use lifted state from App.js
+  const loading  = persistedLoading;
+  const results  = persistedResults;
+  const setLoading = setPersistedLoading;
+  const setResults = setPersistedResults;
 
   const handleDrop = (e) => {
     e.preventDefault();
@@ -33,9 +42,6 @@ export default function HomePage() {
     if (file?.type === 'application/pdf') setResumeFile(file);
   };
 
-  // ---------------------------------------------------------------------------
-  // Scrape job URL
-  // ---------------------------------------------------------------------------
   const handleScrape = async () => {
     if (!jobUrl.trim()) return;
     setScraping(true);
@@ -55,9 +61,6 @@ export default function HomePage() {
     }
   };
 
-  // ---------------------------------------------------------------------------
-  // Run analysis
-  // ---------------------------------------------------------------------------
   const handleSubmit = async () => {
     if (!resumeFile || !jobDesc.trim()) {
       setError('Please upload a resume and provide a job description.');
@@ -87,9 +90,15 @@ export default function HomePage() {
     }
   };
 
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
+  const handleReset = () => {
+    setResults(null);
+    setResumeFile(null);
+    setJobDesc('');
+    setJobUrl('');
+    setScrapeError('');
+    setProgress(0);
+  };
+
   return (
     <div className="upload-form">
       <div className="hero">
@@ -123,8 +132,6 @@ export default function HomePage() {
             {/* Job description */}
             <div className="form-card">
               <span className="form-label">Job Description</span>
-
-              {/* URL scraper */}
               <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
                 <input
                   style={{
@@ -160,18 +167,14 @@ export default function HomePage() {
                   fontSize: '0.8rem', color: '#f87171',
                   background: 'rgba(239,68,68,0.08)',
                   border: '1px solid rgba(239,68,68,0.2)',
-                  borderRadius: 6, padding: '0.5rem 0.75rem',
-                  marginBottom: 8,
+                  borderRadius: 6, padding: '0.5rem 0.75rem', marginBottom: 8,
                 }}>
                   {scrapeError}
                 </div>
               )}
 
               {jobDesc && !scrapeError && jobUrl && (
-                <div style={{
-                  fontSize: '0.78rem', color: '#34d399',
-                  marginBottom: 6,
-                }}>
+                <div style={{ fontSize: '0.78rem', color: '#34d399', marginBottom: 6 }}>
                   ✓ Job description fetched successfully
                 </div>
               )}
@@ -201,13 +204,7 @@ export default function HomePage() {
           <button
             className="submit-btn"
             style={{ marginTop: '1rem' }}
-            onClick={() => {
-              setResults(null);
-              setResumeFile(null);
-              setJobDesc('');
-              setJobUrl('');
-              setScrapeError('');
-            }}
+            onClick={handleReset}
           >
             ← Analyse Another
           </button>
