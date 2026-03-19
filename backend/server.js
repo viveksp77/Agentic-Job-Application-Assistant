@@ -11,7 +11,7 @@ const upload = multer({ dest: 'uploads/' });
 app.use(cors());
 app.use(express.json());
 
-const PYTHON_API = 'http://localhost:8000';
+const PYTHON_API = process.env.PYTHON_API || 'http://localhost:8000';
 
 // ---------------------------------------------------------------------------
 // Resume analysis
