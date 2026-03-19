@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-const BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-const PYTHON = 'http://localhost:8000';
+const BASE   = process.env.REACT_APP_API_URL    || 'http://localhost:5000/api';
+const PYTHON = process.env.REACT_APP_PYTHON_URL || 'http://localhost:8000';
 
 export const analyzeApplication = async (resumeFile, jobDesc) => {
   const form = new FormData();
@@ -34,7 +34,7 @@ export const evaluateAnswer = async (jobRole, difficulty, conversation, userAnsw
 };
 
 // ---------------------------------------------------------------------------
-// SSE streaming helpers
+// SSE streaming helpers — go directly to Python (bypasses Node)
 // ---------------------------------------------------------------------------
 
 const _stream = (url, payload, onToken, onDone, onError) => {
@@ -87,9 +87,9 @@ export const scrapeJobUrl = async (url) => {
   return response.data;
 };
 
-// PDF export — downloads directly from Python FastAPI
+// PDF export — goes directly to Python FastAPI
 export const downloadCoverLetterPDF = async (payload) => {
-  const response = await fetch('http://localhost:8000/export/cover-letter-pdf', {
+  const response = await fetch(`${PYTHON}/export/cover-letter-pdf`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -104,7 +104,7 @@ export const downloadCoverLetterPDF = async (payload) => {
 };
 
 export const downloadResumePDF = async (payload) => {
-  const response = await fetch('http://localhost:8000/export/resume-pdf', {
+  const response = await fetch(`${PYTHON}/export/resume-pdf`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
