@@ -8,7 +8,7 @@ from typing import List, Tuple, Dict
 # Model — loaded once at import time, reused for all comparisons
 # ---------------------------------------------------------------------------
 # 'all-MiniLM-L6-v2' is small (80MB), fast, and accurate enough for skill matching
-_model = SentenceTransformer('all-MiniLM-L6-v2')
+_model = SentenceTransformer('all-MiniLM-L6-v2', local_files_only=True)
 
 # Similarity threshold — skills with cosine similarity >= this are considered a match
 SIMILARITY_THRESHOLD = 0.75

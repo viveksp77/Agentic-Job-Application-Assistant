@@ -14,9 +14,9 @@ _client = chromadb.PersistentClient(path=".chroma")
 
 # Use the same sentence-transformers model already installed for FAISS
 _ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-    model_name="all-MiniLM-L6-v2"
+    model_name="all-MiniLM-L6-v2",
+    model_kwargs={"local_files_only": True}
 )
-
 # Collection name for resume chunks
 COLLECTION_NAME = "resume_chunks"
 
