@@ -8,7 +8,13 @@ const fs = require('fs');
 const app = express();
 const upload = multer({ dest: 'uploads/' });
 
-app.use(cors());
+app.use(cors({
+  origin: [
+    'https://agenticjobassistant.vercel.app',
+    'http://localhost:3000',
+  ],
+  credentials: true,
+}));
 app.use(express.json());
 
 const PYTHON_API = process.env.PYTHON_API || 'http://localhost:8000';
