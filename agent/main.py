@@ -1,6 +1,6 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
 from typing import List, Optional
 import tempfile, os, re, json
@@ -9,12 +9,53 @@ from agent.planner import create_plan
 from agent.executor import execute_plan
 from agent.memory import AgentMemory
 from agent.evaluator import evaluate_resume_match
+from agent.auth import (
+    init_auth_db, UserCreate, UserLogin, TokenResponse,
+    create_user, authenticate_user, create_token, get_current_user
+)
 from utils.llm_client import llm_client
 from utils.rag_memory import query_resume
 
+# ---------------------------------------------------------------------------
+# App setup
+# ---------------------------------------------------------------------------
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
+# Initialise auth DB tables on startup
+init_auth_db()
+
+
+# ---------------------------------------------------------------------------
+# Auth endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/auth/register", response_model=TokenResponse)
+async def register(user: UserCreate):
+    if len(user.password) < 6:
+        raise HTTPException(status_code=400, detail='Password must be at least 6 characters.')
+    created = create_user(user.email, user.username, user.password)
+    token = create_token(created['id'], created['username'])
+    return TokenResponse(access_token=token, username=created['username'], email=created['email'])
+
+@app.post("/auth/login", response_model=TokenResponse)
+async def login(user: UserLogin):
+    authenticated = authenticate_user(user.username, user.password)
+    if not authenticated:
+        raise HTTPException(status_code=401, detail='Invalid username or password.')
+    token = create_token(authenticated['id'], authenticated['username'])
+    return TokenResponse(access_token=token, username=authenticated['username'], email=authenticated['email'])
+
+@app.get("/auth/me")
+async def me(current_user: dict = Depends(get_current_user)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail='Not logged in.')
+    return current_user
+
+
+# ---------------------------------------------------------------------------
+# Resume analysis
+# ---------------------------------------------------------------------------
 
 @app.post("/analyze")
 async def analyze(resume: UploadFile = File(...), job_desc: str = Form(...)):
@@ -45,6 +86,10 @@ async def analyze(resume: UploadFile = File(...), job_desc: str = Form(...)):
             pass
 
 
+# ---------------------------------------------------------------------------
+# History
+# ---------------------------------------------------------------------------
+
 @app.get("/history")
 async def history():
     from database.db_manager import get_applications
@@ -52,7 +97,20 @@ async def history():
 
 
 # ---------------------------------------------------------------------------
-# Streaming models
+# Job scraper
+# ---------------------------------------------------------------------------
+
+class ScrapeRequest(BaseModel):
+    url: str
+
+@app.post("/scrape")
+async def scrape(req: ScrapeRequest):
+    from utils.scraper import scrape_job_description
+    return scrape_job_description(req.url)
+
+
+# ---------------------------------------------------------------------------
+# Streaming models + helper
 # ---------------------------------------------------------------------------
 
 class StreamRequest(BaseModel):
@@ -63,16 +121,10 @@ class StreamRequest(BaseModel):
     missing_skills: List[str]
     resume_id: Optional[str] = None
 
-
 class InterviewStreamRequest(BaseModel):
     job_desc: str
     resume_skills: List[str]
     resume_id: Optional[str] = None
-
-
-# ---------------------------------------------------------------------------
-# SSE helper
-# ---------------------------------------------------------------------------
 
 def _sse_generator(messages: list):
     try:
@@ -98,9 +150,8 @@ async def stream_cover_letter(req: StreamRequest):
         ach = query_resume(req.resume_id, "achievements awards projects impact results", n_results=2)
         if exp or ach:
             candidate_context = f"{exp}\n\n{ach}".strip()
-
     messages = [
-        {'role': 'system', 'content': 'You are a professional cover letter writer. Return ONLY the letter text — no subject line, no JSON, no markdown.'},
+        {'role': 'system', 'content': 'You are a professional cover letter writer. Return ONLY the letter text.'},
         {'role': 'user', 'content': (
             f'Write a cover letter.\n\nJob Title: {req.job_title}\nJob: {req.job_desc[:600]}\n'
             f'Background:\n{candidate_context[:800]}\nStrengths: {req.strengths}\n{skills_note}\n\n'
@@ -110,14 +161,12 @@ async def stream_cover_letter(req: StreamRequest):
     return StreamingResponse(_sse_generator(messages), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
-
 @app.post("/stream/interview-questions")
 async def stream_interview_questions(req: InterviewStreamRequest):
     skills_str = ', '.join(req.resume_skills[:10]) if req.resume_skills else 'Not specified'
     bg = query_resume(req.resume_id, "projects experience skills education", n_results=3) if req.resume_id else ''
-
     messages = [
-        {'role': 'system', 'content': 'You are a senior technical interviewer. Return ONLY a numbered list. No preamble.'},
+        {'role': 'system', 'content': 'You are a senior technical interviewer. Return ONLY a numbered list.'},
         {'role': 'user', 'content': (
             f'Generate exactly 10 interview questions.\n\nJob: {req.job_desc[:800]}\n'
             f'Skills: {skills_str}\nBackground:\n{bg[:600]}\n\n'
@@ -126,6 +175,38 @@ async def stream_interview_questions(req: InterviewStreamRequest):
     ]
     return StreamingResponse(_sse_generator(messages), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ---------------------------------------------------------------------------
+# PDF export
+# ---------------------------------------------------------------------------
+
+class CoverLetterPDFRequest(BaseModel):
+    cover_letter: str
+    job_title: str = 'the role'
+    candidate_name: str = ''
+
+class ResumePDFRequest(BaseModel):
+    optimized_bullets: str
+    job_title: str = 'the role'
+    candidate_name: str = ''
+    resume_skills: List[str] = []
+    missing_skills: List[str] = []
+
+@app.post("/export/cover-letter-pdf")
+async def export_cover_letter_pdf(req: CoverLetterPDFRequest):
+    from utils.pdf_generator import generate_cover_letter_pdf
+    pdf_bytes = generate_cover_letter_pdf(req.cover_letter, req.job_title, req.candidate_name)
+    return Response(content=pdf_bytes, media_type="application/pdf",
+                    headers={"Content-Disposition": "attachment; filename=cover_letter.pdf"})
+
+@app.post("/export/resume-pdf")
+async def export_resume_pdf(req: ResumePDFRequest):
+    from utils.pdf_generator import generate_resume_pdf
+    pdf_bytes = generate_resume_pdf(req.optimized_bullets, req.job_title, req.candidate_name,
+                                    req.resume_skills, req.missing_skills)
+    return Response(content=pdf_bytes, media_type="application/pdf",
+                    headers={"Content-Disposition": "attachment; filename=optimized_resume.pdf"})
 
 
 # ---------------------------------------------------------------------------
@@ -156,7 +237,7 @@ async def get_interview_question(req: InterviewRequest):
 async def evaluate_answer(req: InterviewRequest):
     last_q = req.conversation[-1].content if req.conversation else "N/A"
     messages = [
-        {'role': 'system', 'content': 'Evaluate the candidate\'s answer. Return ONLY valid JSON: {"clarity":7,"relevance":8,"depth":6,"feedback":"one sentence","strength":"phrase","improvement":"phrase"}'},
+        {'role': 'system', 'content': 'Evaluate the answer. Return ONLY valid JSON: {"clarity":7,"relevance":8,"depth":6,"feedback":"one sentence","strength":"phrase","improvement":"phrase"}'},
         {'role': 'user', 'content': f"Job: {req.job_role}\nQuestion: {last_q}\nAnswer: {req.user_answer}\n\nScore 1-10 each."}
     ]
     response = llm_client.chat(messages=messages)
@@ -164,75 +245,10 @@ async def evaluate_answer(req: InterviewRequest):
     if match:
         try:
             d = json.loads(match.group())
-            return {"clarity": int(d.get("clarity",7)), "relevance": int(d.get("relevance",7)),
-                    "depth": int(d.get("depth",7)), "feedback": d.get("feedback",""),
-                    "strength": d.get("strength",""), "improvement": d.get("improvement","")}
+            return {"clarity": int(d.get("clarity", 7)), "relevance": int(d.get("relevance", 7)),
+                    "depth": int(d.get("depth", 7)), "feedback": d.get("feedback", ""),
+                    "strength": d.get("strength", ""), "improvement": d.get("improvement", "")}
         except Exception:
             pass
-    return {"clarity":7,"relevance":7,"depth":7,"feedback":response[:200],"strength":"Submitted.","improvement":"Be more specific."}
-
-
-# ---------------------------------------------------------------------------
-# Job scraper endpoint
-# ---------------------------------------------------------------------------
-
-class ScrapeRequest(BaseModel):
-    url: str
-
-@app.post("/scrape")
-async def scrape(req: ScrapeRequest):
-    """Fetch a job posting URL and return the extracted job description."""
-    from utils.scraper import scrape_job_description
-    result = scrape_job_description(req.url)
-    return result
-
-
-# ---------------------------------------------------------------------------
-# PDF export endpoints
-# ---------------------------------------------------------------------------
-
-class CoverLetterPDFRequest(BaseModel):
-    cover_letter: str
-    job_title: str = 'the role'
-    candidate_name: str = ''
-
-class ResumePDFRequest(BaseModel):
-    optimized_bullets: str
-    job_title: str = 'the role'
-    candidate_name: str = ''
-    resume_skills: List[str] = []
-    missing_skills: List[str] = []
-
-@app.post("/export/cover-letter-pdf")
-async def export_cover_letter_pdf(req: CoverLetterPDFRequest):
-    """Generate and return a cover letter PDF."""
-    from utils.pdf_generator import generate_cover_letter_pdf
-    from fastapi.responses import Response
-    pdf_bytes = generate_cover_letter_pdf(
-        cover_letter_text=req.cover_letter,
-        job_title=req.job_title,
-        candidate_name=req.candidate_name,
-    )
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": "attachment; filename=cover_letter.pdf"}
-    )
-
-@app.post("/export/resume-pdf")
-async def export_resume_pdf(req: ResumePDFRequest):
-    """Generate and return an optimised resume PDF."""
-    from utils.pdf_generator import generate_resume_pdf
-    from fastapi.responses import Response
-    pdf_bytes = generate_resume_pdf(
-        bullets_text=req.optimized_bullets,
-        job_title=req.job_title,
-        candidate_name=req.candidate_name,
-        resume_skills=req.resume_skills,
-        missing_skills=req.missing_skills,
-    )
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": "attachment; filename=optimized_resume.pdf"}
-    )
+    return {"clarity": 7, "relevance": 7, "depth": 7, "feedback": response[:200],
+            "strength": "Submitted.", "improvement": "Be more specific."}

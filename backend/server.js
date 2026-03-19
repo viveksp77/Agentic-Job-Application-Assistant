@@ -102,7 +102,39 @@ app.post('/api/scrape', async (req, res) => {
     }
 });
 
+// Auth routes — proxy to Python
+app.post('/api/auth/register', async (req, res) => {
+    try {
+        const response = await axios.post(`${PYTHON_API}/auth/register`, req.body, {
+            headers: { 'Content-Type': 'application/json' }, timeout: 10000,
+        });
+        res.json(response.data);
+    } catch (err) {
+        res.status(err.response?.status || 500).json(err.response?.data || { error: err.message });
+    }
+});
 
+app.post('/api/auth/login', async (req, res) => {
+    try {
+        const response = await axios.post(`${PYTHON_API}/auth/login`, req.body, {
+            headers: { 'Content-Type': 'application/json' }, timeout: 10000,
+        });
+        res.json(response.data);
+    } catch (err) {
+        res.status(err.response?.status || 500).json(err.response?.data || { error: err.message });
+    }
+});
+
+app.get('/api/auth/me', async (req, res) => {
+    try {
+        const response = await axios.get(`${PYTHON_API}/auth/me`, {
+            headers: { 'Authorization': req.headers.authorization }, timeout: 10000,
+        });
+        res.json(response.data);
+    } catch (err) {
+        res.status(err.response?.status || 500).json(err.response?.data || { error: err.message });
+    }
+});
 
 // ---------------------------------------------------------------------------
 // Start server
