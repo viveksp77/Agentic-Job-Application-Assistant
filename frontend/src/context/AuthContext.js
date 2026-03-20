@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import axios from 'axios';
 
 const AuthContext = createContext(null);
-const BASE = 'http://localhost:5000/api';
+const BASE = process.env.REACT_APP_API_URL || 'https://agentic-job-application-assistant-production.up.railway.app/api';
 
 export function AuthProvider({ children }) {
   const [user, setUser]       = useState(null);
