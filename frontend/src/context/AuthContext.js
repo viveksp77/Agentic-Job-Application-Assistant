@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import axios from 'axios';
 
 const AuthContext = createContext(null);
-const BASE = process.env.REACT_APP_API_URL || 'https://creativity-speaks-parade-married.trycloudflare.com';
+const BASE = 'https://listprice-dare-centers-tariff.trycloudflare.com';
 
 export function AuthProvider({ children }) {
   const [user, setUser]       = useState(null);

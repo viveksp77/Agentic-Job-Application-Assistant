@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-const BASE = process.env.REACT_APP_API_URL || 'https://agentic-job-application-assistant-production.up.railway.app/api';
-const PYTHON = process.env.REACT_APP_PYTHON_URL || 'https://creativity-speaks-parade-married.trycloudflare.com';
+const BASE = 'https://listprice-dare-centers-tariff.trycloudflare.com';
+const PYTHON = 'https://listprice-dare-centers-tariff.trycloudflare.com';
 
 export const analyzeApplication = async (resumeFile, jobDesc) => {
   const form = new FormData();
@@ -33,13 +33,8 @@ export const evaluateAnswer = async (jobRole, difficulty, conversation, userAnsw
   return response.data;
 };
 
-// ---------------------------------------------------------------------------
-// SSE streaming helpers — go directly to Python (bypasses Node)
-// ---------------------------------------------------------------------------
-
 const _stream = (url, payload, onToken, onDone, onError) => {
   const ctrl = new AbortController();
-
   fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -50,14 +45,12 @@ const _stream = (url, payload, onToken, onDone, onError) => {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
         buffer = lines.pop();
-
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             const data = line.slice(6);
@@ -72,7 +65,6 @@ const _stream = (url, payload, onToken, onDone, onError) => {
     .catch((err) => {
       if (err.name !== 'AbortError') onError(err.message);
     });
-
   return () => ctrl.abort();
 };
 
@@ -87,7 +79,6 @@ export const scrapeJobUrl = async (url) => {
   return response.data;
 };
 
-// PDF export — goes directly to Python FastAPI
 export const downloadCoverLetterPDF = async (payload) => {
   const response = await fetch(`${PYTHON}/export/cover-letter-pdf`, {
     method: 'POST',
