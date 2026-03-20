@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-const BASE   = process.env.REACT_APP_API_URL    || 'http://localhost:5000/api';
-const PYTHON = process.env.REACT_APP_PYTHON_URL || 'http://localhost:8000';
+const BASE = process.env.REACT_APP_API_URL || 'https://agentic-job-application-assistant-production.up.railway.app/api';
+const PYTHON = process.env.REACT_APP_PYTHON_URL || 'https://creativity-speaks-parade-married.trycloudflare.com';
 
 export const analyzeApplication = async (resumeFile, jobDesc) => {
   const form = new FormData();
